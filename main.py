@@ -1,8 +1,8 @@
 from telegram import ForceReply, Update, InlineKeyboardButton, InlineKeyboardMarkup, Chat, ChatMember, ChatMemberUpdated
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, \
     ChatMemberHandler, PicklePersistence
-from telegram.constants import ParseMode
-import pickle
+
+from database import Database
 
 
 def creds_loading():
@@ -67,17 +67,24 @@ def status_change_handling(chat_member_update: ChatMemberUpdated):
 
 
 async def user_group_storing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(update.effective_user.id, update.effective_chat.id)
-    # if update.effective_chat.type == Chat.GROUP or Chat.SUPERGROUP:
-    #     if context.user_data[1] is None:
-    #         context.user_data[1] = update.effective_chat.id
-    #         await update.message.reply_html('Чат успешно привязан! Вернитесь в диалог для продолжения.')
-    #     else:
-    #         await update.message.reply_html(
-    #             'Вы уже имеете привязанную группу, используйте /unlink или удалите меня из другой группы.')
-    #
-    # else:
-    #     await update.message.reply_html('Ататай. Вводите эту команду в группе!')
+    if update.effective_chat.type == Chat.GROUP or Chat.SUPERGROUP:
+        if not db.check_if_exists(str(update.effective_user.id)):
+            db.set(str(update.effective_user.id), str(update.effective_chat.id))
+            db.save()
+            await update.message.reply_html('Чат успешно привязан! Вернитесь в диалог для продолжения.')
+        else:
+            await update.message.reply_html(
+                'Вы уже имеете привязанную группу, используйте /unlink или удалите меня из другой группы.')
+
+    else:
+        await update.message.reply_html('Ататай. Вводите эту команду в группе!')
+
+
+async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if db.check_if_exists(str(update.effective_user.id)):
+        db.remove(str(update.effective_user.id))
+        db.save()
+        await update.message.reply_html('Чат успешно отвязан!')
 
 
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,10 +110,13 @@ def bot_loading(token, bot_username):
     bot_persistence = PicklePersistence(filepath='persistence')
 
     app = Application.builder().token(token).persistence(persistence=bot_persistence).build()
+    global db
+    db = Database()
 
     # start command handlers
     app.add_handler(CommandHandler('start', start))
     app.add_handler(CommandHandler('link', user_group_storing))
+    app.add_handler(CommandHandler('unlink', unlink))
     app.add_handler(CallbackQueryHandler(query_buttons))
 
     # chat member tracking
