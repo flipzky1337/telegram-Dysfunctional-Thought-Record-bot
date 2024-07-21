@@ -1,8 +1,11 @@
-from telegram import ForceReply, Update, InlineKeyboardButton, InlineKeyboardMarkup, Chat, ChatMember, ChatMemberUpdated
+from telegram import ForceReply, Update, InlineKeyboardButton, InlineKeyboardMarkup, Chat, ChatMember, \
+    ChatMemberUpdated, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, \
-    ChatMemberHandler, PicklePersistence
+    ChatMemberHandler, PicklePersistence, filters, ConversationHandler
 
 from database import Database
+
+SITUATION, THOUGHTS, REACTIONS, PROS, CONS, CONCLUSIONS = range(6)
 
 
 def creds_loading():
@@ -36,7 +39,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def query_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
 
-    await chat_add_dialogue(update.callback_query, context)
+    await chat_add_dialogue(update.callback_query,
+                            context)  # idk why, it just won't take update without the .callback_query
 
 
 async def chat_add_dialogue(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -72,9 +76,10 @@ async def user_group_storing(update: Update, context: ContextTypes.DEFAULT_TYPE)
             db.set(str(update.effective_user.id), str(update.effective_chat.id))
             db.save()
             await update.message.reply_html('Чат успешно привязан! Вернитесь в диалог для продолжения.')
+            await default_state(update, context)
         else:
             await update.message.reply_html(
-                'Вы уже имеете привязанную группу, используйте /unlink или удалите меня из другой группы.')
+                'Вы уже имеете привязанную группу, используйте /unlink.')
 
     else:
         await update.message.reply_html('Ататай. Вводите эту команду в группе!')
@@ -85,6 +90,77 @@ async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.remove(str(update.effective_user.id))
         db.save()
         await update.message.reply_html('Чат успешно отвязан!')
+
+
+async def default_state(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    buttons = [[KeyboardButton('Добавить запись'),
+                KeyboardButton('Удалить запись')],
+               [KeyboardButton('Отвязать группу'),
+                InlineKeyboardButton('Донат')]]
+    await context.bot.send_message(chat_id=update.effective_user.id, text='Выберите действие:',
+                                   reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True,
+                                                                    one_time_keyboard=True))
+
+
+async def new_record(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db_journal[update.effective_user.id] = {}
+    await update.message.reply_html('Опишите событие, вызвавшее неприятную эмоцию.')
+
+    return SITUATION
+
+
+async def situation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db_journal[update.effective_user.id]['situation'] = update.message.text
+    await update.message.reply_html(
+        'Запишите содержание мыслей, интерпретацию ситуации и вашей реакции.\nОцените, насколько правдоподобны для вас эти мысли от 1 до 100%.')
+
+    return THOUGHTS
+
+
+async def thoughts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db_journal[update.effective_user.id]['thoughts'] = update.message.text
+    await update.message.reply_html(
+        'Запишите какие реакции у вас вызвала эта ситуация: эмоции, чувства, ощущения, действия.\nОцените интенсивность реакций от 1 до 100%.')
+
+    return REACTIONS
+
+
+async def reactions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db_journal[update.effective_user.id]['reactions'] = update.message.text
+    await update.message.reply_html(
+        'Какие есть доказательства правдивости мыслей?\nКакие факты говорят, что всё верно?\nВ чем преимущество, польза так мыслить?')
+
+    return PROS
+
+
+async def pros(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db_journal[update.effective_user.id]['pros'] = update.message.text
+    await update.message.reply_html(
+        'Какие есть опровержения правдивости мыслей?\nВ чем можно усомниться?\nЧто говорит об обратном?\nКак объяснить ситуацию иначе?')
+
+    return CONS
+
+
+async def cons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db_journal[update.effective_user.id]['cons'] = update.message.text
+    await update.message.reply_html('Как лучше реагировать в будущем?\nО чем следует помнить?')
+
+    return CONCLUSIONS
+
+
+async def conclusions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db_journal[update.effective_user.id]['conclusions'] = update.message.text
+    await context.bot.send_message(chat_id=db.get(str(update.effective_user.id)),
+                                   text=db_journal[update.effective_user.id])
+    db_journal[update.effective_user.id] = {}
+    await update.message.reply_html('Запись успешно добавлена!')
+
+    return ConversationHandler.END
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text('ok')
+    return ConversationHandler.END
 
 
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -113,14 +189,35 @@ def bot_loading(token, bot_username):
     global db
     db = Database()
 
-    # start command handlers
+    global db_journal
+    db_journal = {}
+
+    # command handlers
     app.add_handler(CommandHandler('start', start))
-    app.add_handler(CommandHandler('link', user_group_storing))
-    app.add_handler(CommandHandler('unlink', unlink))
+
     app.add_handler(CallbackQueryHandler(query_buttons))
 
     # chat member tracking
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(CommandHandler('link', user_group_storing))
+    app.add_handler(CommandHandler('unlink', unlink))
+
+    # conversation handlers
+    new_record_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("Добавить запись"), new_record)],
+        states={
+            SITUATION: [MessageHandler(filters.TEXT, situation)],
+            THOUGHTS: [MessageHandler(filters.TEXT, thoughts)],
+            REACTIONS: [MessageHandler(filters.TEXT, reactions)],
+            PROS: [MessageHandler(filters.TEXT, pros)],
+            CONS: [MessageHandler(filters.TEXT, cons)],
+            CONCLUSIONS: [MessageHandler(filters.TEXT, conclusions)]
+        },
+        fallbacks=[CommandHandler('cancel', default_state)],
+    )
+
+    app.add_handler(new_record_conv)
+
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
