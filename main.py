@@ -165,6 +165,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def donate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_html('<b>За любую поддержку выражаю глубокое спасибо и вкусно кушаю</b>\nТинькофф - 2200 7010 1874 8803, за другими реквизитами пишите мне в ЛС @saveitsky')
+
+
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = status_change_handling(update.my_chat_member)
     if result is None:
@@ -222,6 +226,7 @@ def bot_loading(token, bot_username):
 
     # message handlers used in default state
     app.add_handler(MessageHandler(filters.Regex('Отвязать группу'), unlink))
+    app.add_handler(MessageHandler(filters.Regex('Донат'), donate))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
