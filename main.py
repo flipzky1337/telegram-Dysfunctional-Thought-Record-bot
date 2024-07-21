@@ -1,6 +1,9 @@
 from telegram import ForceReply, Update, InlineKeyboardButton, InlineKeyboardMarkup, Chat, ChatMember, ChatMemberUpdated
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, ChatMemberHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, \
+    ChatMemberHandler, PicklePersistence
 from telegram.constants import ParseMode
+import pickle
+
 
 def creds_loading():
     with open('credentials.txt') as f:
@@ -19,13 +22,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     keyboard = [
-        [InlineKeyboardButton('Начать вести журнал', callback_data = 'consent')]
-        ]
+        [InlineKeyboardButton('Начать вести журнал', callback_data='consent')]
+    ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_html(
-        f"Привет {user.mention_html()}!\nЭтот бот был создан как вольный проект по запросу прекрасной дамы.\nОн позволит тебе создать журнал дисфункциональных мыслей с помощью нашего диалога.", reply_markup=reply_markup
+        f"Привет {user.mention_html()}!\nЭтот бот был создан как вольный проект по запросу прекрасной дамы.\nОн позволит вам создать журнал дисфункциональных мыслей с помощью нашего диалога.",
+        reply_markup=reply_markup
     )
 
 
@@ -36,7 +40,8 @@ async def query_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def chat_add_dialogue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.edit_text('Теперь создай пустую группу и добавь меня туда.\n\nКак только я буду добавлен')
+    await update.message.edit_text(
+        'Теперь создайте пустую группу и добавьте меня туда. Как только я буду добавлен, вернитесь в этот диалог.')
 
 
 def status_change_handling(chat_member_update: ChatMemberUpdated):
@@ -45,7 +50,7 @@ def status_change_handling(chat_member_update: ChatMemberUpdated):
 
     if status_change is None:
         return None
-    
+
     old_status, new_status = status_change
     was_member = old_status in [
         ChatMember.MEMBER,
@@ -61,11 +66,25 @@ def status_change_handling(chat_member_update: ChatMemberUpdated):
     return was_member, is_member
 
 
+async def user_group_storing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print(update.effective_user.id, update.effective_chat.id)
+    # if update.effective_chat.type == Chat.GROUP or Chat.SUPERGROUP:
+    #     if context.user_data[1] is None:
+    #         context.user_data[1] = update.effective_chat.id
+    #         await update.message.reply_html('Чат успешно привязан! Вернитесь в диалог для продолжения.')
+    #     else:
+    #         await update.message.reply_html(
+    #             'Вы уже имеете привязанную группу, используйте /unlink или удалите меня из другой группы.')
+    #
+    # else:
+    #     await update.message.reply_html('Ататай. Вводите эту команду в группе!')
+
+
 async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = status_change_handling(update.my_chat_member)
     if result is None:
         return
-    
+
     was_member, is_member = result
 
     cause_name = update.effective_user.full_name
@@ -73,29 +92,27 @@ async def track_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     if chat.type == Chat.GROUP or Chat.SUPERGROUP:
         if not was_member and is_member:
-            print(f'{cause_name} added you to chat')
+            await update.effective_chat.send_message(
+                'Я вижу что вы меня добавили. Теперь для доступа к полному функционалу привяжите журнал с помощью /link :)')
         elif was_member and not is_member:
-            print(f'{cause_name} deleted you from the chat')
+            await update.effective_user.send_message(
+                'Я был удалён из вашего журнала, добавьте меня обратно если хотите продолжить.')
 
 
 def bot_loading(token, bot_username):
-    app = Application.builder().token(token).build()
+    bot_persistence = PicklePersistence(filepath='persistence')
 
-    #start command handlers
+    app = Application.builder().token(token).persistence(persistence=bot_persistence).build()
+
+    # start command handlers
     app.add_handler(CommandHandler('start', start))
+    app.add_handler(CommandHandler('link', user_group_storing))
     app.add_handler(CallbackQueryHandler(query_buttons))
 
-
-    #chat member tracking
+    # chat member tracking
     app.add_handler(ChatMemberHandler(track_group, ChatMemberHandler.MY_CHAT_MEMBER))
-
-
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
     main()
-
-
-    
-
