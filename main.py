@@ -71,7 +71,7 @@ def status_change_handling(chat_member_update: ChatMemberUpdated):
 
 
 async def user_group_storing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_chat.type == Chat.GROUP or Chat.SUPERGROUP:
+    if update.effective_chat.type == Chat.GROUP:
         if not db.check_if_exists(str(update.effective_user.id)):
             db.set(str(update.effective_user.id), str(update.effective_chat.id))
             db.save()
@@ -93,10 +93,9 @@ async def unlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def default_state(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    buttons = [[KeyboardButton('Добавить запись'),
-                KeyboardButton('Удалить запись')],
-               [KeyboardButton('Отвязать группу'),
-                InlineKeyboardButton('Донат')]]
+    buttons = [[KeyboardButton('Добавить запись ✍️')],
+               [KeyboardButton('Отвязать группу '),
+                InlineKeyboardButton('Донат 😍')]]
     await context.bot.send_message(chat_id=update.effective_user.id, text='Выберите действие:',
                                    reply_markup=ReplyKeyboardMarkup(buttons, resize_keyboard=True,
                                                                     one_time_keyboard=True))
@@ -150,8 +149,11 @@ async def cons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def conclusions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_journal[update.effective_user.id]['conclusions'] = update.message.text
+
+    ready_message = f'<b>Ситуация</b>\n\n{db_journal[update.effective_user.id]['situation']}\n\n<b>Мысли</b>\n\n{db_journal[update.effective_user.id]['thoughts']}\n\n<b>Реакция</b>\n\n{db_journal[update.effective_user.id]['reactions']}\n\n<b>За</b>\n\n{db_journal[update.effective_user.id]['pros']}\n\n<b>Против</b>\n\n{db_journal[update.effective_user.id]['cons']}\n\n<b>Выводы</b>\n\n{db_journal[update.effective_user.id]['conclusions']}'
+
     await context.bot.send_message(chat_id=db.get(str(update.effective_user.id)),
-                                   text=db_journal[update.effective_user.id])
+                                   text=ready_message, parse_mode='html')
     db_journal[update.effective_user.id] = {}
     await update.message.reply_html('Запись успешно добавлена!')
 
@@ -217,6 +219,9 @@ def bot_loading(token, bot_username):
     )
 
     app.add_handler(new_record_conv)
+
+    # message handlers used in default state
+    app.add_handler(MessageHandler(filters.Regex('Отвязать группу'), unlink))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
